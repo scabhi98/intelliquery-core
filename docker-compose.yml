@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # Core Engine - A2A Orchestrator
+  core-engine:
+    build:
+      context: .
+      dockerfile: services/core-engine/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - CORE_ENGINE_SERVICE_PORT=8000
+      - CORE_ENGINE_LOG_LEVEL=INFO
+      - CORE_ENGINE_PLANNER_AGENT_URL=http://mock-planner:9000
+      - CORE_ENGINE_SOP_KNOWLEDGE_URL=http://mock-sop-knowledge:9010
+      - CORE_ENGINE_ERROR_KNOWLEDGE_URL=http://mock-error-knowledge:9011
+      - CORE_ENGINE_KQL_DATA_URL=http://mock-kql-data:9020
+      - CORE_ENGINE_SPL_DATA_URL=http://mock-spl-data:9021
+      - CORE_ENGINE_SQL_DATA_URL=http://mock-sql-data:9022
+    networks:
+      - lexi-network
+    depends_on:
+      - mock-planner
+      - mock-sop-knowledge
+      - mock-error-knowledge
+      - mock-kql-data
+      - mock-spl-data
+      - mock-sql-data
+    restart: unless-stopped
+
+  # Mock Planner Agent
+  mock-planner:
+    build:
+      context: .
+      dockerfile: services/mock-agents/planner/Dockerfile
+    ports:
+      - "9000:9000"
+    environment:
+      - AGENT_ID=mock_workflow_planner
+    networks:
+      - lexi-network
+    restart: unless-stopped
+
+  # Mock SOP Knowledge Agent
+  mock-sop-knowledge:
+    build:
+      context: .
+      dockerfile: services/mock-agents/knowledge/Dockerfile
+    ports:
+      - "9010:9010"
+    environment:
+      - AGENT_TYPE=sop
+    networks:
+      - lexi-network
+    restart: unless-stopped
+
+  # Mock Error Knowledge Agent
+  mock-error-knowledge:
+    build:
+      context: .
+      dockerfile: services/mock-agents/knowledge/Dockerfile
+    ports:
+      - "9011:9011"
+    environment:
+      - AGENT_TYPE=error
+    networks:
+      - lexi-network
+    restart: unless-stopped
+
+  # Mock KQL Data Agent
+  mock-kql-data:
+    build:
+      context: .
+      dockerfile: services/mock-agents/data/Dockerfile
+    ports:
+      - "9020:9020"
+    environment:
+      - PLATFORM=kql
+    networks:
+      - lexi-network
+    restart: unless-stopped
+
+  # Mock SPL Data Agent
+  mock-spl-data:
+    build:
+      context: .
+      dockerfile: services/mock-agents/data/Dockerfile
+    ports:
+      - "9021:9021"
+    environment:
+      - PLATFORM=spl
+    networks:
+      - lexi-network
+    restart: unless-stopped
+
+  # Mock SQL Data Agent
+  mock-sql-data:
+    build:
+      context: .
+      dockerfile: services/mock-agents/data/Dockerfile
+    ports:
+      - "9022:9022"
+    environment:
+      - PLATFORM=sql
+    networks:
+      - lexi-network
+    restart: unless-stopped
+
+networks:
+  lexi-network:
+    driver: bridge
+
+# Usage:
+# Build all services: docker-compose build
+# Start all services: docker-compose up -d
+# View logs: docker-compose logs -f
+# Stop all: docker-compose down
+# 
+# Test endpoint:
+# curl -X POST http://localhost:8000/api/v1/query \
+#   -H "Content-Type: application/json" \
+#   -d '{"natural_language": "Show failed login attempts", "platform": "kql"}'

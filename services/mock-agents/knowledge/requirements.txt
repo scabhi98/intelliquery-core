@@ -1,0 +1,12 @@
+# Mock Knowledge Agents Dependencies
+
+# Include shared dependencies
+-r ../../../shared/requirements.txt
+
+# FastAPI and web server
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0
+
+# Logging
+structlog>=23.1.0

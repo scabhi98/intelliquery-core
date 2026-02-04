@@ -1,0 +1,21 @@
+# Query Generator Service Dependencies
+
+# Include shared dependencies
+-r ../../shared/requirements.txt
+
+# Ollama for LLM
+ollama>=0.1.0
+
+# GraphRAG
+graphrag
+microsoft-graphrag>=0.1.0
+
+# Query parsing and validation
+sqlparse>=0.4.4
+
+# Langchain for LLM integration
+langchain>=0.1.0
+langchain-ollama>=0.1.0
+
+# Token counting for cost tracking
+tiktoken>=0.5.0

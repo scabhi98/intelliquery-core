@@ -1,0 +1,17 @@
+# Cost Tracker Service Dependencies
+
+# Include shared dependencies
+-r ../../shared/requirements.txt
+
+# Redis for storage
+redis>=5.0.0
+redis[hiredis]>=5.0.0
+
+# Token counting
+tiktoken>=0.5.0
+
+# Time series data
+pandas>=2.0.0
+
+# Analytics
+numpy>=1.24.0

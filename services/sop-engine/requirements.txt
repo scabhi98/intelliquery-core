@@ -1,0 +1,24 @@
+# SOP Engine Service Dependencies
+
+# Include shared dependencies
+-r ../../shared/requirements.txt
+
+# Vector database
+chromadb>=0.4.0
+
+# Ollama for embeddings
+ollama>=0.1.0
+
+# GraphRAG
+graphrag
+microsoft-graphrag>=0.1.0
+
+# Document processing
+langchain>=0.1.0
+langchain-community>=0.1.0
+pypdf>=3.15.0
+python-docx>=0.8.11
+markdown>=3.4.0
+
+# Text splitting
+tiktoken>=0.5.0

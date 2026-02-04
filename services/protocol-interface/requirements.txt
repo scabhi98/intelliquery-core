@@ -1,0 +1,18 @@
+# Protocol Interface Service Dependencies
+
+# Include shared dependencies
+-r ../../shared/requirements.txt
+
+# MCP protocol
+mcp>=0.9.0
+
+# A2A SDK
+a2a-sdk-python
+
+# Authentication
+cryptography>=41.0.0
+PyJWT>=2.8.0
+authlib>=1.2.0
+
+# OAuth2
+oauthlib>=3.2.2
