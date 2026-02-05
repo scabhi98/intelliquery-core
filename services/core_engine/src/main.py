@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
+import httpx
 
 from shared.models.query_models import QueryRequest, QueryResponse
 from shared.models.cost_models import JourneyCostSummary
@@ -258,133 +259,28 @@ async def get_journey_cost(
 # MCP Server Interface (Phase 2 placeholder)
 @app.post("/mcp/tools/list")
 async def mcp_list_tools():
-    """
-    MCP endpoint: List available tools.
-    
-    Phase 2: Returns basic tool definitions.
-    Phase 4: Implements full MCP protocol.
-    """
-    return {
-        "tools": [
-            {
-                "name": "process_query",
-                "description": "Process a natural language query through LexiQuery engine",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "natural_language": {"type": "string"},
-                        "platform": {"type": "string", "enum": ["kql", "spl", "sql"]},
-                        "context": {"type": "object"}
-                    },
-                    "required": ["natural_language", "platform"]
-                }
-            },
-            {
-                "name": "get_journey_status",
-                "description": "Get status and cost summary for a query journey",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "journey_id": {"type": "string", "format": "uuid"}
-                    },
-                    "required": ["journey_id"]
-                }
-            }
-        ]
-    }
+    """Proxy MCP tool listing to Protocol Interface service."""
+    async with httpx.AsyncClient(timeout=app.state.settings.agent_timeout_seconds) as client:
+        response = await client.post(
+            f"{app.state.settings.protocol_interface_url}/mcp/tools/list"
+        )
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Protocol Interface unavailable")
+    return response.json()
 
 
 @app.post("/mcp/tools/call")
-async def mcp_call_tool(
-    request: Dict,
-    orchestrator: A2AOrchestrator = Depends(get_orchestrator)
-):
-    """
-    MCP endpoint: Execute tool call.
-    
-    Phase 2: Basic implementation.
-    Phase 4: Full MCP protocol with streaming.
-    """
-    tool_name = request.get("name")
-    arguments = request.get("arguments", {})
-    
-    logger.info("MCP tool call", tool=tool_name, args=arguments)
-    
-    if tool_name == "process_query":
-        # Convert to QueryRequest
-        query_request = QueryRequest(
-            natural_language=arguments["natural_language"],
-            platform=arguments["platform"],
-            context=arguments.get("context")
+async def mcp_call_tool(request: Dict):
+    """Proxy MCP tool calls to Protocol Interface service."""
+    logger.info("MCP tool call", tool=request.get("name"))
+    async with httpx.AsyncClient(timeout=app.state.settings.agent_timeout_seconds) as client:
+        response = await client.post(
+            f"{app.state.settings.protocol_interface_url}/mcp/tools/call",
+            json=request
         )
-        
-        journey_id = uuid4()
-        
-        response = await orchestrator.orchestrate_query_workflow(
-            request=query_request,
-            journey_id=journey_id
-        )
-        
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Query processed successfully. Journey ID: {journey_id}"
-                },
-                {
-                    "type": "resource",
-                    "resource": {
-                        "uri": f"lexi://journey/{journey_id}",
-                        "mimeType": "application/json",
-                        "text": response.json()
-                    }
-                }
-            ]
-        }
-    
-    elif tool_name == "get_journey_status":
-        journey_id = UUID(arguments["journey_id"])
-        
-        if journey_id not in orchestrator.active_journeys:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"Journey {journey_id} not found or completed"
-                    }
-                ],
-                "isError": True
-            }
-        
-        context = orchestrator.active_journeys[journey_id]
-        
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Journey {journey_id} status: {context.current_state}"
-                },
-                {
-                    "type": "resource",
-                    "resource": {
-                        "uri": f"lexi://journey/{journey_id}/cost",
-                        "mimeType": "application/json",
-                        "text": context.cost_summary.json()
-                    }
-                }
-            ]
-        }
-    
-    else:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Unknown tool: {tool_name}"
-                }
-            ],
-            "isError": True
-        }
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Protocol Interface unavailable")
+    return response.json()
 
 
 if __name__ == "__main__":

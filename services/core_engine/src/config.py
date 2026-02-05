@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     splunk_mcp_url: str = "http://localhost:9102"
     sql_mcp_url: str = "http://localhost:9103"
     errordb_mcp_url: str = "http://localhost:9104"
+
+    # Protocol Interface (Phase 4)
+    protocol_interface_url: str = "http://localhost:8001"
     
     # Redis (for production journey storage)
     redis_host: str = "localhost"
