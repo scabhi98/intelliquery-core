@@ -108,7 +108,7 @@ class QueryResponse(BaseModel):
         default_factory=dict,
         description="Additional metadata (agents_used, timing, etc.)"
     )
-    generation_time_ms: float = Field(
+    generation_time_ms: Optional[float] = Field(
         ...,
         description="Time taken to generate query in milliseconds"
     )

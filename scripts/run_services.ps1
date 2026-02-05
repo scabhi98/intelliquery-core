@@ -75,34 +75,18 @@ Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " Starting LexiQuery Services" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
-# Create logs directory
-$logsDir = Join-Path $ProjectRoot "logs"
-if (-not (Test-Path $logsDir)) {
-    New-Item -ItemType Directory -Path $logsDir | Out-Null
-    Write-Host "Created logs directory: $logsDir`n" -ForegroundColor Gray
-}
-
 # Set PYTHONPATH to project root
 $env:PYTHONPATH = $ProjectRoot
 
 foreach ($svc in $services) {
     Write-Host "Starting: $($svc.Name) on port $($svc.Port)..." -ForegroundColor $svc.Color
     
-    # Create log file path
-    $serviceName = $svc.Name -replace ' ', '-' | ForEach-Object { $_.ToLower() }
-    $logFile = Join-Path $logsDir "$serviceName.log"
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    # Start service in new window
+    $startCmd = "& uvicorn $($svc.Module) --port $($svc.Port) --reload"
     
-    # Write log header
-    "=== $($svc.Name) Started at $timestamp ===" | Out-File -FilePath $logFile -Encoding UTF8
-    
-    # Start service in new window with log redirection
-    $startCmd = "cd '$ProjectRoot'; `$env:PYTHONPATH='$ProjectRoot'; Write-Host 'Starting $($svc.Name) - Logs: $logFile' -ForegroundColor $($svc.Color); uvicorn $($svc.Module) --host 0.0.0.0 --port $($svc.Port) --reload --log-level info 2>&1 | Tee-Object -FilePath '$logFile' -Append"
-    
-    Start-Process pwsh -ArgumentList "-NoExit", "-Command", $startCmd `
+    Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$ProjectRoot'; `$env:PYTHONPATH='$ProjectRoot'; $startCmd" `
         -WindowStyle Normal
     
-    Write-Host "  Log file: $logFile" -ForegroundColor Gray
     Start-Sleep -Milliseconds 500
 }
 
@@ -130,8 +114,6 @@ Write-Host "`nStop all services:" -ForegroundColor Yellow
 Write-Host "  .\scripts\run_services.ps1 -Stop" -ForegroundColor White
 
 Write-Host "`nView logs:" -ForegroundColor Yellow
-Write-Host "  Log files: $logsDir" -ForegroundColor White
-Write-Host "  Tail logs: Get-Content $logsDir\core-engine.log -Wait -Tail 50" -ForegroundColor Gray
-Write-Host "  View all: .\scripts\view_logs.ps1" -ForegroundColor Gray
+Write-Host "  Check individual PowerShell windows for each service" -ForegroundColor White
 
 Write-Host ""

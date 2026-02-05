@@ -562,7 +562,8 @@ class A2AOrchestrator:
             overall_confidence=overall_confidence,
             warnings=metadata.get("warnings", []),
             cost_summary=context.cost_summary,
-            metadata=metadata
+            metadata=metadata,
+            generation_time_ms=0
         )
         
         self.logger.info(

@@ -489,11 +489,11 @@ if __name__ == "__main__":
     platform = sys.argv[1] if len(sys.argv) > 1 else "kql"
     
     if platform == "kql":
-        uvicorn.run("main:app_kql", host="0.0.0.0", port=9020, reload=True)
+        uvicorn.run("main:app_kql",  port=9020, reload=True)
     elif platform == "spl":
-        uvicorn.run("main:app_spl", host="0.0.0.0", port=9021, reload=True)
+        uvicorn.run("main:app_spl",  port=9021, reload=True)
     elif platform == "sql":
-        uvicorn.run("main:app_sql", host="0.0.0.0", port=9022, reload=True)
+        uvicorn.run("main:app_sql",  port=9022, reload=True)
     else:
         print(f"Unknown platform: {platform}")
         print("Usage: python main.py [kql|spl|sql]")

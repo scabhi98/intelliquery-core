@@ -432,7 +432,7 @@ if __name__ == "__main__":
     if agent_type == "sop":
         uvicorn.run(
             "main:app_sop",
-            host="0.0.0.0",
+            
             port=9010,
             reload=True,
             log_level="info"
@@ -440,7 +440,7 @@ if __name__ == "__main__":
     elif agent_type == "error":
         uvicorn.run(
             "main:app_error",
-            host="0.0.0.0",
+            
             port=9011,
             reload=True,
             log_level="info"
