@@ -17,9 +17,12 @@ from shared.utils.exceptions import LexiQueryException
 from .orchestrator import A2AOrchestrator
 from .config import Settings
 
+import os
 
-# Setup structured logging
-setup_logging()
+# Setup structured logging with file output
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+log_file = os.path.join(project_root, "logs", "core-engine.log")
+setup_logging(log_file=log_file)
 logger = structlog.get_logger()
 
 

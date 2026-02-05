@@ -11,7 +11,8 @@ from structlog.stdlib import LoggerFactory
 def setup_logging(
     log_level: str = "INFO",
     service_name: Optional[str] = None,
-    json_format: bool = True
+    json_format: bool = True,
+    log_file: Optional[str] = None
 ) -> None:
     """Configure structured logging for the application.
     
@@ -19,15 +20,33 @@ def setup_logging(
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         service_name: Name of the service for log context
         json_format: Whether to use JSON format (True for production)
+        log_file: Optional path to log file for file-based logging
     """
     # Convert string level to logging constant
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
     
+    # Configure handlers
+    handlers = []
+    
+    # Console handler (stdout)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(numeric_level)
+    handlers.append(console_handler)
+    
+    # File handler (if log_file provided)
+    if log_file:
+        import os
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(numeric_level)
+        handlers.append(file_handler)
+    
     # Configure standard library logging
     logging.basicConfig(
         format="%(message)s",
-        stream=sys.stdout,
         level=numeric_level,
+        handlers=handlers,
+        force=True
     )
     
     # Build processor chain

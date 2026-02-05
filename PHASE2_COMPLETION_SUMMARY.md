@@ -323,6 +323,33 @@ Phase 2 successfully implements the **A2A + MCP Hybrid Architecture** with a thi
 
 ## How to Use
 
+### Development Setup (Single Root venv)
+
+Phase 2 uses a **single root-level virtual environment** strategy for better VS Code integration and easier development.
+
+```powershell
+# 1. Setup development environment
+.\scripts\setup_envs.ps1
+
+# This creates .venv/ at root with ALL dependencies installed
+
+# 2. Start all services at once
+.\scripts\run_services.ps1
+
+# 3. Check status
+.\scripts\run_services.ps1 -Status
+
+# 4. Stop all
+.\scripts\run_services.ps1 -Stop
+```
+
+**Benefits**:
+- ✅ Single .venv at root (no VS Code conflicts)
+- ✅ All dependencies in one place
+- ✅ Easy to run multiple services
+- ✅ Faster development iteration
+- ✅ requirements.txt kept for Docker builds
+
 ### Quick Start with Docker
 ```powershell
 # Build all services
@@ -332,12 +359,7 @@ docker-compose build
 docker-compose up -d
 
 # Test the system
-curl -X POST http://localhost:8000/api/v1/query `
-  -H "Content-Type: application/json" `
-  -d '{
-    "natural_language": "Show failed login attempts in the last hour",
-    "platform": "kql"
-  }'
+.\scripts\test_phase2.ps1
 
 # View logs
 docker-compose logs -f core-engine
@@ -348,6 +370,10 @@ docker-compose down
 
 ### Run Tests
 ```powershell
+# Activate venv (if not already active)
+.\.venv\Scripts\Activate.ps1
+
+# Run integration tests
 cd services/core-engine
 pytest tests/test_integration.py -v
 ```

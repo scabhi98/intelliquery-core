@@ -162,49 +162,56 @@ Phase 2 implements the **A2A + MCP Hybrid Architecture** with a thin orchestrati
 
 ## Running Phase 2
 
-### Local Development
+### Local Development (Recommended)
 
-**1. Install Dependencies**:
+Phase 2 uses a **single root-level virtual environment** for easy VS Code integration and development.
+
+**1. Setup Development Environment**:
 ```powershell
-# Install shared dependencies
-pip install -r shared/requirements.txt
+# Run the setup script to create .venv at root and install all dependencies
+.\scripts\setup_envs.ps1
 
-# Install service-specific dependencies
-pip install -r services/core-engine/requirements.txt
-pip install -r services/mock-agents/planner/requirements.txt
-pip install -r services/mock-agents/knowledge/requirements.txt
-pip install -r services/mock-agents/data/requirements.txt
+# This will:
+# - Create .venv/ at project root
+# - Install shared dependencies
+# - Install all service dependencies
+# - Build wheel distributions (optional)
 ```
 
-**2. Start Services Manually**:
+**2. Start All Services (Easy Mode)**:
 ```powershell
-# Terminal 1 - Core Engine
-cd services/core-engine/src
-python main.py
+# Start all 7 services at once in separate windows
+.\scripts\run_services.ps1
 
-# Terminal 2 - Planner Agent
-cd services/mock-agents/planner/src
-python main.py
+# Check service status
+.\scripts\run_services.ps1 -Status
 
-# Terminal 3 - SOP Knowledge
-cd services/mock-agents/knowledge/src
-python main.py sop
+# Stop all services
+.\scripts\run_services.ps1 -Stop
+```
 
-# Terminal 4 - Error Knowledge
-cd services/mock-agents/knowledge/src
-python main.py error
+**3. Start Services Manually (Individual Control)**:
+```powershell
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
 
-# Terminal 5 - KQL Data Agent
-cd services/mock-agents/data/src
-python main.py kql
+# Start services using Python module syntax
+python -m uvicorn services.core_engine.src.main:app --port 8000 --reload
+python -m uvicorn services.mock_agents.planner.src.main:app --port 9000 --reload
+python -m uvicorn services.mock_agents.knowledge.src.main:app_sop --port 9010 --reload
+python -m uvicorn services.mock_agents.knowledge.src.main:app_error --port 9011 --reload
+python -m uvicorn services.mock_agents.data.src.main:app_kql --port 9020 --reload
+python -m uvicorn services.mock_agents.data.src.main:app_spl --port 9021 --reload
+python -m uvicorn services.mock_agents.data.src.main:app_sql --port 9022 --reload
+```
 
-# Terminal 6 - SPL Data Agent
-cd services/mock-agents/data/src
-python main.py spl
+**4. VS Code Integration**:
+```powershell
+# VS Code will automatically detect .venv at root
+# Select interpreter: Ctrl+Shift+P -> "Python: Select Interpreter"
+# Choose: .\.venv\Scripts\python.exe
 
-# Terminal 7 - SQL Data Agent
-cd services/mock-agents/data/src
-python main.py sql
+# All services share the same environment - no conflicts!
 ```
 
 ### Docker Compose (Recommended)

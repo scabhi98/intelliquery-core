@@ -2,13 +2,18 @@
 
 from typing import Dict, List
 from uuid import UUID
+import os
 
 from fastapi import FastAPI, HTTPException
 import structlog
 
 from shared.models.a2a_models import A2ATaskRequest, A2ATaskResponse, QueryResult
+from shared.utils.logging_config import setup_logging
 
-
+# Setup structured logging with file output
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+log_file = os.path.join(project_root, "logs", "data-agents.log")
+setup_logging(log_file=log_file)
 logger = structlog.get_logger()
 
 
