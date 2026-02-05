@@ -11,6 +11,7 @@ from shared.utils.logging_config import setup_logging
 from .config import Settings
 from .auth.provider_factory import get_auth_provider
 from .a2a.handler import A2AHandler
+from .a2a.registry import AgentRegistry
 from .mcp.models import MCPTool, MCPToolCallRequest
 from .mcp.tool_registry import ToolRegistry
 from .mcp.tool_handlers import MCPToolHandlers
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
     app.state.tool_handlers = MCPToolHandlers(app.state.settings)
     app.state.auth_provider = get_auth_provider(app.state.settings.auth_provider)
     app.state.a2a_handler = A2AHandler(app.state.settings)
+    app.state.agent_registry = AgentRegistry(app.state.settings.request_timeout_seconds)
 
     _register_tools(app.state.tool_registry, app.state.tool_handlers)
 
@@ -155,8 +157,84 @@ async def mcp_call_tool(
 
 @app.get("/a2a/agents/discover", response_model=list[A2AAgentDescriptor])
 async def discover_agents(_: None = Depends(require_auth)) -> list[A2AAgentDescriptor]:
+    """Discover all registered agents."""
     handler: A2AHandler = app.state.a2a_handler
-    return await handler.discover_agents()
+    registry: AgentRegistry = app.state.agent_registry
+    return await handler.discover_agents(internal_registry=registry)
+
+
+@app.post("/a2a/agents/register")
+async def register_agent(
+    service_uri: str,
+    _: None = Depends(require_auth)
+) -> Dict[str, Any]:
+    """Register an agent by fetching its descriptor from service_uri.
+    
+    The agent service must expose GET /a2a/descriptor endpoint.
+    """
+    registry: AgentRegistry = app.state.agent_registry
+    try:
+        descriptor = await registry.register_from_uri(service_uri)
+        return {
+            "status": "registered",
+            "agent_id": descriptor.agent_id,
+            "agent_type": descriptor.agent_type,
+            "agent_name": descriptor.agent_name,
+            "endpoint": descriptor.endpoint
+        }
+    except Exception as exc:
+        logger.error("Agent registration failed", service_uri=service_uri, error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/a2a/agents/register/direct", response_model=Dict[str, str])
+async def register_agent_direct(
+    descriptor: A2AAgentDescriptor,
+    _: None = Depends(require_auth)
+) -> Dict[str, str]:
+    """Directly register an agent descriptor."""
+    registry: AgentRegistry = app.state.agent_registry
+    registry.register_descriptor(descriptor)
+    return {"status": "registered", "agent_id": descriptor.agent_id}
+
+
+@app.delete("/a2a/agents/{agent_id}")
+async def unregister_agent(
+    agent_id: str,
+    _: None = Depends(require_auth)
+) -> Dict[str, Any]:
+    """Unregister an agent from the registry."""
+    registry: AgentRegistry = app.state.agent_registry
+    success = registry.unregister_agent(agent_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"status": "unregistered", "agent_id": agent_id}
+
+
+@app.get("/a2a/agents/{agent_id}", response_model=A2AAgentDescriptor)
+async def get_agent(
+    agent_id: str,
+    _: None = Depends(require_auth)
+) -> A2AAgentDescriptor:
+    """Get a specific agent descriptor."""
+    registry: AgentRegistry = app.state.agent_registry
+    agent = registry.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return agent
+
+
+@app.get("/a2a/registry/stats")
+async def get_registry_stats(_: None = Depends(require_auth)) -> Dict[str, Any]:
+    """Get agent registry statistics."""
+    registry: AgentRegistry = app.state.agent_registry
+    return {
+        "total_agents": registry.get_count(),
+        "agents": [
+            {"agent_id": agent.agent_id, "agent_type": agent.agent_type, "agent_name": agent.agent_name}
+            for agent in registry.list_agents()
+        ]
+    }
 
 
 @app.post("/a2a/task/invoke", response_model=A2ATaskResponse)
@@ -165,6 +243,7 @@ async def invoke_a2a_task(
     task: A2ATaskRequest,
     _: None = Depends(require_auth)
 ) -> A2ATaskResponse:
+    """Invoke a task on an A2A agent."""
     handler: A2AHandler = app.state.a2a_handler
     return await handler.invoke_task(agent, task)
 

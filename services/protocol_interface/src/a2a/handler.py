@@ -48,10 +48,17 @@ class A2AHandler:
             elapsed_ms = (time.time() - start_time) * 1000
             logger.info("A2A task invocation completed", agent_id=agent.agent_id, elapsed_ms=elapsed_ms)
 
-    async def discover_agents(self) -> List[A2AAgentDescriptor]:
-        """Discover agents using registry or static configuration."""
+    async def discover_agents(self, internal_registry=None) -> List[A2AAgentDescriptor]:
+        """Discover agents using internal registry, external registry, or static configuration."""
         agents: List[A2AAgentDescriptor] = []
 
+        # Priority 1: Internal registry
+        if internal_registry:
+            agents = internal_registry.list_agents()
+            if agents:
+                return agents
+
+        # Priority 2: External A2A registry
         if self.settings.a2a_registry_url:
             try:
                 async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -61,9 +68,11 @@ class A2AHandler:
                 if response.status_code == 200:
                     payload = response.json()
                     agents = [A2AAgentDescriptor(**item) for item in payload]
+                    return agents
             except Exception as exc:
                 logger.warning("A2A registry discovery failed", error=str(exc))
 
+        # Priority 3: Static configuration
         if not agents:
             try:
                 static_list = json.loads(self.settings.a2a_static_agents_json or "[]")
