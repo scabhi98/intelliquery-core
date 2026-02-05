@@ -249,7 +249,7 @@ async def retrieve_sop_context(request: A2ATaskRequest) -> A2ATaskResponse:
         agent_id="mock_sop_knowledge",
         status="completed",
         result={
-            "knowledge_context": knowledge_context.model_dump(),
+            "knowledge_context": knowledge_context.model_dump(mode="json"),
             "procedures_found": len(relevant_procedures)
         },
         cost_info={
@@ -404,7 +404,7 @@ async def retrieve_error_context(request: A2ATaskRequest) -> A2ATaskResponse:
         agent_id="mock_error_knowledge",
         status="completed",
         result={
-            "knowledge_context": knowledge_context.model_dump(),
+            "knowledge_context": knowledge_context.model_dump(mode="json"),
             "errors_found": len(relevant_errors)
         },
         cost_info={

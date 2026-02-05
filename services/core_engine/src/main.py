@@ -37,11 +37,8 @@ async def lifespan(app: FastAPI):
     config = {
         "max_retries": app.state.settings.max_retries,
         "agent_timeout_seconds": app.state.settings.agent_timeout_seconds,
-        "planner_agent_url": app.state.settings.planner_agent_url,
-        "sop_knowledge_url": app.state.settings.sop_knowledge_url,
-        "kql_data_url": app.state.settings.kql_data_url,
-        "spl_data_url": app.state.settings.spl_data_url,
-        "sql_data_url": app.state.settings.sql_data_url,
+        "protocol_interface_url": app.state.settings.protocol_interface_url,
+        "max_concurrent_agents": app.state.settings.max_concurrent_agents,
     }
     
     app.state.orchestrator = A2AOrchestrator(config)
@@ -134,7 +131,7 @@ async def process_query(
     5. Results are aggregated and returned
     
     Args:
-        request: Query request with natural language query and platform
+        request: Query request with natural language query
         journey_id: Journey identifier (from header or auto-generated)
         orchestrator: A2A orchestrator instance
         
@@ -147,13 +144,14 @@ async def process_query(
     logger.info(
         "Processing query request",
         journey_id=str(journey_id),
-        platform=request.platform,
         query_preview=request.natural_language[:100]
     )
     
     try:
         # Set request metadata
         request.request_id = str(uuid4())
+        # Ignore user-supplied platform; planner decides
+        request.platform = None
         
         # Orchestrate workflow via A2A agents
         response = await orchestrator.orchestrate_query_workflow(

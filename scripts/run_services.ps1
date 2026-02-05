@@ -22,12 +22,13 @@ if (-not (Test-Path $PythonExe)) {
 # Service definitions
 $services = @(
     @{Name="Core Engine"; Module="services.core_engine.src.main:app"; Port=8000; Color="Cyan"}
-    @{Name="Planner Agent"; Module="services.mock_agents.planner.src.main:app"; Port=9000; Color="Green"}
+    @{Name="Planner Agent"; Module="services.planner.src.main:app"; Port=9000; Color="Green"}
     @{Name="SOP Knowledge"; Module="services.mock_agents.knowledge.src.main:app_sop"; Port=9010; Color="Yellow"}
     @{Name="Error Knowledge"; Module="services.mock_agents.knowledge.src.main:app_error"; Port=9011; Color="Magenta"}
     @{Name="KQL Data Agent"; Module="services.mock_agents.data.src.main:app_kql"; Port=9020; Color="Blue"}
-    @{Name="SPL Data Agent"; Module="services.mock_agents.data.src.main:app_spl"; Port=9021; Color="DarkCyan"}
+    # @{Name="SPL Data Agent"; Module="services.mock_agents.data.src.main:app_spl"; Port=9021; Color="DarkCyan"}
     @{Name="SQL Data Agent"; Module="services.mock_agents.data.src.main:app_sql"; Port=9022; Color="DarkBlue"}
+    @{Name="Protocol Interface"; Module="services.protocol_interface.src.main:app"; Port=8001; Color="DarkGreen"}
 )
 
 # Status check

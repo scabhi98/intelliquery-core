@@ -34,7 +34,10 @@ async def lifespan(app: FastAPI):
     app.state.tool_handlers = MCPToolHandlers(app.state.settings)
     app.state.auth_provider = get_auth_provider(app.state.settings.auth_provider)
     app.state.a2a_handler = A2AHandler(app.state.settings)
-    app.state.agent_registry = AgentRegistry(app.state.settings.request_timeout_seconds)
+    app.state.agent_registry = AgentRegistry(
+        timeout_seconds=app.state.settings.request_timeout_seconds,
+        registry_file=app.state.settings.a2a_registry_file
+    )
 
     _register_tools(app.state.tool_registry, app.state.tool_handlers)
 
@@ -180,7 +183,7 @@ async def register_agent(
             "agent_id": descriptor.agent_id,
             "agent_type": descriptor.agent_type,
             "agent_name": descriptor.agent_name,
-            "endpoint": descriptor.endpoint
+            "endpoint": descriptor.endpoint or service_uri
         }
     except Exception as exc:
         logger.error("Agent registration failed", service_uri=service_uri, error=str(exc))
@@ -253,7 +256,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
         port=Settings().service_port,
         log_level=Settings().log_level.lower()
     )

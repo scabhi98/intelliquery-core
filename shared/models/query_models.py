@@ -21,9 +21,9 @@ class QueryRequest(BaseModel):
         min_length=1,
         max_length=2000
     )
-    platform: Literal["kql", "spl", "sql"] = Field(
-        ...,
-        description="Target query platform"
+    platform: Optional[Literal["kql", "spl", "sql"]] = Field(
+        None,
+        description="Target query platform (optional, determined by planner)"
     )
     context: Optional[Dict[str, Any]] = Field(
         None,
@@ -47,7 +47,6 @@ class QueryRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "natural_language": "Show all failed login attempts in the last hour",
-                "platform": "kql",
                 "context": {"table": "SigninLogs"},
                 "user_id": "user@example.com"
             }

@@ -30,7 +30,7 @@ class A2AHandler:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     f"{agent.endpoint}/a2a/task",
-                    json=request.model_dump()
+                    json=request.model_dump(mode="json")
                 )
 
             if response.status_code != 200:

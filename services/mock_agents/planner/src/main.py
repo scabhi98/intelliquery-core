@@ -36,6 +36,7 @@ config = PlannerConfig()
 
 
 @app.get("/")
+@app.get("/a2a/descriptor")
 async def root():
     """Agent information endpoint."""
     return {
@@ -45,7 +46,8 @@ async def root():
         "version": config.version,
         "capabilities": ["create_plan", "optimize_plan"],
         "status": "operational",
-        "mock": True
+        "endpoint": "http://localhost:9000",
+        "metadata": {"mock": True}
     }
 
 
@@ -191,7 +193,7 @@ async def create_workflow_plan(request: A2ATaskRequest) -> A2ATaskResponse:
         agent_id=config.agent_id,
         status="completed",
         result={
-            "plan": plan.model_dump(),
+            "plan": plan.model_dump(mode="json"),
             "confidence": 0.85,  # Mock confidence
             "reasoning": f"Created plan with {len(knowledge_steps)} knowledge sources and {platform} query generation"
         },

@@ -1,0 +1,49 @@
+[
+  {
+    "agent_id": "mock_kql_data",
+    "agent_type": "data",
+    "agent_name": "Mock KQL Data Agent",
+    "endpoint": "http://localhost:9020",
+    "capabilities": [
+      "generate_query",
+      "execute_query",
+      "generate_and_execute"
+    ],
+    "platform": "kql",
+    "version": "1.0.0-phase2-mock",
+    "metadata": {
+      "mock": true
+    }
+  },
+  {
+    "agent_id": "mock_sql_data",
+    "agent_type": "data",
+    "agent_name": "Mock SQL Data Agent",
+    "endpoint": "http://localhost:9021",
+    "capabilities": [
+      "generate_query",
+      "execute_query",
+      "generate_and_execute"
+    ],
+    "platform": "sql",
+    "version": "1.0.0-phase2-mock",
+    "metadata": {
+      "mock": true
+    }
+  },
+  {
+    "agent_id": "workflow_planner",
+    "agent_type": "planner",
+    "agent_name": "Workflow Planner Agent",
+    "endpoint": "http://localhost:9000",
+    "capabilities": [
+      "create_plan",
+      "optimize_plan"
+    ],
+    "platform": null,
+    "version": "2.0.0",
+    "metadata": {
+      "mock": false
+    }
+  }
+]

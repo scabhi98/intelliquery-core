@@ -2,9 +2,510 @@
 
 ## Project Overview
 
-LexiQuery is a business-process-aware query intelligence engine built with a microservices architecture. The system uses RAG-enhanced SOP processing with GraphRAG to generate optimized queries across multiple data platforms (Azure Log Analytics, Splunk, SQL) while maintaining conversational context and learning from successful interactions.
+**LexiQuery** is a privacy-first, multi-agent query intelligence platform that orchestrates specialized A2A agents to generate optimized queries across Azure Log Analytics (KQL), Splunk (SPL), and SQL platforms.
 
-**Key Principle**: Privacy-first, fully local deployment using Ollama for LLMs.
+**Core Architecture**: Thin orchestrator coordinates autonomous agents via A2A protocol - Planner decides workflow, Knowledge agents provide SOP context, Data agents generate platform-specific queries.
+
+**Key Principle**: Fully local deployment using Ollama for LLMs - no external APIs, complete privacy.
+
+---
+
+## Current Implementation Status (February 2026)
+
+### ✅ Completed Services
+
+1. **Core Engine** (Port 8000)
+   - A2A orchestrator with journey lifecycle management
+   - Discovery → Planning → Knowledge → Data → Validation workflow
+   - Platform-agnostic: User provides query, planner selects appropriate data agents
+   - Files: `services/core_engine/src/orchestrator.py`, `main.py`
+
+2. **Protocol Interface** (Port 8001)
+   - MCP tool registry and handlers
+   - A2A task invocation and discovery
+   - Persistent JSON agent registry (`./data/agent_registry.json`)
+   - Auth provider framework (abstract, Google, Azure, GCP placeholders)
+   - Files: `services/protocol_interface/src/main.py`, `a2a/registry.py`, `a2a/handler.py`
+
+3. **SOP Engine** (Port 8002)
+   - Document parsing (Markdown, TXT, DOCX, PDF)
+   - ChromaDB + Ollama embeddings (`nomic-embed-text`)
+   - Semantic search and schema extraction
+   - File upload endpoint: `/api/v1/procedures/upload`
+   - Files: `services/sop_engine/src/service.py`, `parser/`, `vector_store/`
+
+4. **Mock A2A Agents** (Ports 9000-9022)
+   - **Planner** (9000): Creates workflow plans based on available agent capabilities
+   - **Knowledge** (9010-9011): SOP procedures and known errors
+   - **Data** (9020-9022): KQL, SPL, SQL query generators with templates
+   - Files: `services/mock_agents/{planner,knowledge,data}/src/main.py`
+
+### 📦 Shared Models & Interfaces
+
+Located in `shared/`:
+- **Models**: `query_models.py`, `a2a_models.py`, `journey_models.py`, `workflow_models.py`, `cost_models.py`
+- **Interfaces**: Abstract base classes for all services (not yet fully implemented)
+- **Utils**: `exceptions.py`, `logging_config.py`
+
+---
+
+## Architecture Guidelines
+
+### A2A Agent Communication Pattern
+
+```python
+# Discovery → Select → Invoke → Parse Response
+agents = await discover_agents_via_protocol()  # Protocol Interface /a2a/agents/discover
+planner = select_agent_by_capability(agents, "create_plan")
+
+task = A2ATaskRequest(
+    journey_id=journey_id,
+    agent_id=planner.agent_id,
+    action="create_plan",
+    parameters={"natural_language": query, "execution_context": {...}}
+)
+
+response = await invoke_agent_task(planner, task)  # POST /a2a/task/invoke
+plan = WorkflowPlan(**response.result["plan"])
+```
+
+### Planner Context (NEW)
+
+When invoking planner, provide:
+- **Available agents** with capabilities (planner/knowledge/data)
+- **Execution context**: journey state, schema hints, user context
+- **NO platform** from user - planner decides which data agents to use
+
+```python
+execution_context = {
+    "available_agents": {
+        "knowledge": [{"agent_id": "...", "capabilities": [...], "knowledge_domain": "sop"}],
+        "data": [{"agent_id": "...", "capabilities": [...], "platform": "kql"}]
+    },
+    "current_state": "planning",
+    "user_context": {...}
+}
+```
+
+### Service Structure
+
+```
+services/<service-name>/
+├── src/
+│   ├── main.py          # FastAPI entry point
+│   ├── config.py        # Pydantic Settings
+│   ├── service.py       # Core logic
+│   ├── mock/            # Mock implementations (deprecated after Phase 4)
+│   └── ...
+├── tests/
+│   ├── __init__.py
+│   └── test_*.py
+├── requirements.txt
+├── Dockerfile
+└── .venv/              # Virtual environment (gitignored)
+```
+
+---
+
+## Technology Stack
+
+### Core
+- **Python**: 3.11+
+- **Framework**: FastAPI + Uvicorn
+- **Async**: httpx, asyncio
+- **Validation**: Pydantic v2
+- **Logging**: structlog with JSON output
+
+### AI/ML
+- **LLM**: Ollama (`llama3`, local on port 11434)
+- **Embeddings**: Ollama (`nomic-embed-text`)
+- **Vector DB**: ChromaDB (persistent, local)
+- **Graph**: GraphRAG (lightweight schema extraction, not yet full implementation)
+
+### Protocol
+- **A2A**: Agent-to-Agent HTTP-based protocol
+- **MCP**: Model Context Protocol for tool invocation
+- **Registry**: JSON file-based (`protocol_interface/data/agent_registry.json`)
+
+### Dependencies (Core)
+```
+fastapi>=0.100.0
+pydantic>=2.0
+pydantic-settings>=2.0.0
+httpx>=0.24.0
+structlog>=23.1.0
+ollama>=0.1.0
+chromadb>=0.4.0
+python-multipart>=0.0.6
+```
+
+---
+
+## Coding Conventions
+
+### Python Style
+- **PEP 8** and **PEP 257** (docstrings)
+- **Type hints** everywhere: `async def func(x: int) -> str:`
+- **async/await** for all I/O operations
+- **Pydantic models** for all data validation
+- **Interface-first**: Define ABC before implementation
+
+### File Naming
+- `snake_case.py` for modules
+- `PascalCase` for classes
+- `UPPER_CASE` for constants
+
+### Import Organization
+```python
+# Standard library
+import asyncio
+from typing import List, Optional
+from uuid import UUID
+
+# Third-party
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+import structlog
+
+# Shared
+from shared.models.query_models import QueryRequest
+from shared.models.a2a_models import A2ATaskRequest
+
+# Local
+from .config import settings
+from .service import MyService
+```
+
+---
+
+## Essential Patterns
+
+### FastAPI Service Template
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+import structlog
+
+from .config import Settings
+from .service import MyService
+
+logger = structlog.get_logger()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup/shutdown lifecycle."""
+    app.state.settings = Settings()
+    app.state.service = MyService(app.state.settings)
+    await app.state.service.initialize()
+    logger.info("Service started", service=app.state.settings.service_name)
+    yield
+    await app.state.service.cleanup()
+
+app = FastAPI(title="My Service", version="1.0.0", lifespan=lifespan)
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "service": app.state.settings.service_name}
+
+@app.post("/api/v1/process")
+async def process(request: MyRequest) -> MyResponse:
+    try:
+        result = await app.state.service.process(request)
+        return result
+    except Exception as e:
+        logger.error("Processing failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+### Pydantic Settings
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        case_sensitive=False
+    )
+    
+    service_name: str = "my-service"
+    service_port: int = 8000
+    log_level: str = "INFO"
+    
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "llama3"
+    
+    protocol_interface_url: str = "http://localhost:8001"
+```
+
+### Ollama Client
+
+```python
+import ollama
+
+class OllamaClient:
+    def __init__(self, host: str = "http://localhost:11434", model: str = "llama3"):
+        self.model = model
+        ollama.set_host(host)
+    
+    async def generate(self, prompt: str, system: Optional[str] = None) -> str:
+        response = ollama.generate(
+            model=self.model,
+            prompt=prompt,
+            system=system
+        )
+        return response['response']
+    
+    async def embed(self, text: str) -> List[float]:
+        response = ollama.embeddings(
+            model="nomic-embed-text",
+            prompt=text
+        )
+        return response['embedding']
+```
+
+### ChromaDB Vector Store
+
+```python
+import chromadb
+from chromadb.utils import embedding_functions
+
+class VectorStore:
+    def __init__(self, persist_dir: str = "./chroma_db"):
+        self.client = chromadb.PersistentClient(
+            path=persist_dir,
+            settings=chromadb.Settings(anonymized_telemetry=False)
+        )
+        
+        self.embedding_fn = embedding_functions.OllamaEmbeddingFunction(
+            model_name="nomic-embed-text",
+            url="http://localhost:11434/api/embeddings"
+        )
+        
+        self.collection = self.client.get_or_create_collection(
+            name="documents",
+            embedding_function=self.embedding_fn
+        )
+    
+    async def add(self, ids: List[str], documents: List[str], metadatas: List[dict]):
+        self.collection.add(
+            ids=ids,
+            documents=documents,
+            metadatas=metadatas
+        )
+    
+    async def search(self, query: str, n_results: int = 5) -> List[dict]:
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            include=["documents", "metadatas", "distances"]
+        )
+        return results
+```
+
+### Error Handling
+
+```python
+from shared.utils.exceptions import LexiQueryException
+
+class ServiceUnavailableException(LexiQueryException):
+    """Raised when a service is unavailable."""
+    pass
+
+# Usage
+try:
+    response = await client.get(url)
+    response.raise_for_status()
+except httpx.HTTPError as e:
+    raise ServiceUnavailableException(
+        f"Service call failed: {url}",
+        details={"error": str(e)}
+    )
+```
+
+### Structured Logging
+
+```python
+import structlog
+
+logger = structlog.get_logger()
+
+# Log with context
+logger.info(
+    "query_processed",
+    journey_id=str(journey_id),
+    platform="kql",
+    confidence=0.87,
+    cost_usd=0.005
+)
+
+# Log errors with exc_info
+try:
+    result = await process()
+except Exception as e:
+    logger.error("Processing failed", error=str(e), exc_info=True)
+    raise
+```
+
+---
+
+## Testing Guidelines
+
+### Unit Test Pattern
+
+```python
+import pytest
+from unittest.mock import AsyncMock
+
+@pytest.fixture
+async def service():
+    """Create service instance for testing."""
+    svc = MyService(Settings())
+    await svc.initialize()
+    yield svc
+    await svc.cleanup()
+
+@pytest.mark.asyncio
+async def test_process(service):
+    """Test processing logic."""
+    request = MyRequest(data="test")
+    response = await service.process(request)
+    
+    assert response.status == "success"
+    assert response.result is not None
+```
+
+### Integration Test Pattern
+
+```python
+from httpx import AsyncClient
+from .main import app
+
+@pytest.mark.asyncio
+async def test_api_endpoint():
+    """Test API endpoint end-to-end."""
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/process",
+            json={"data": "test"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+```
+
+---
+
+## Anti-Patterns to AVOID
+
+### ❌ External LLM APIs
+```python
+# BAD
+import openai
+client = openai.OpenAI(api_key="...")
+
+# GOOD
+import ollama
+response = ollama.generate(model="llama3", prompt="...")
+```
+
+### ❌ Hardcoded Config
+```python
+# BAD
+DATABASE_URL = "postgresql://localhost:5432/db"
+
+# GOOD
+from .config import settings
+database_url = settings.database_url
+```
+
+### ❌ Missing Type Hints
+```python
+# BAD
+async def process(request):
+    return generate(request)
+
+# GOOD
+async def process(request: QueryRequest) -> QueryResponse:
+    return await generate(request)
+```
+
+### ❌ Blocking I/O
+```python
+# BAD
+import requests
+response = requests.get(url)
+
+# GOOD
+import httpx
+async with httpx.AsyncClient() as client:
+    response = await client.get(url)
+```
+
+---
+
+## Quick Reference
+
+### Current Services & Ports
+- **Core Engine**: 8000 (A2A orchestrator)
+- **Protocol Interface**: 8001 (MCP + A2A + registry)
+- **SOP Engine**: 8002 (document parsing + ChromaDB)
+- **Mock Planner**: 9000 (workflow planning)
+- **Mock Knowledge**: 9010-9011 (SOP + errors)
+- **Mock Data**: 9020-9022 (KQL, SPL, SQL)
+
+### Key Endpoints
+```
+POST /api/v1/query                     # Core Engine: Process query (no platform needed)
+GET  /a2a/agents/discover              # Protocol Interface: Discover agents
+POST /a2a/agents/register              # Protocol Interface: Register agent by URI
+POST /a2a/task/invoke                  # Protocol Interface: Invoke agent task
+POST /api/v1/procedures/upload         # SOP Engine: Upload document
+POST /api/v1/procedures/search         # SOP Engine: Semantic search
+```
+
+### Important Files
+- **Orchestrator**: `services/core_engine/src/orchestrator.py`
+- **Agent Registry**: `services/protocol_interface/src/a2a/registry.py`
+- **SOP Service**: `services/sop_engine/src/service.py`
+- **Shared Models**: `shared/models/*.py`
+- **Config**: Each service has `src/config.py`
+
+### Environment Variables
+```bash
+# Core Engine
+CORE_ENGINE_PROTOCOL_INTERFACE_URL=http://localhost:8001
+CORE_ENGINE_MAX_CONCURRENT_AGENTS=5
+
+# Protocol Interface
+A2A_REGISTRY_FILE=./data/agent_registry.json
+A2A_STATIC_AGENTS_JSON='[]'
+
+# SOP Engine
+OLLAMA_HOST=http://localhost:11434
+CHROMA_PERSIST_DIR=./chroma_db
+```
+
+---
+
+## Key Principles for Code Generation
+
+1. ✅ **Interface-first**: Define ABC before implementation
+2. ✅ **Pydantic validation**: All data models inherit BaseModel
+3. ✅ **Type hints**: Every function parameter and return
+4. ✅ **Async I/O**: Use httpx, not requests; await all I/O
+5. ✅ **Local Ollama**: Never use external LLM APIs
+6. ✅ **Structured logs**: Use structlog with context fields
+7. ✅ **Error handling**: Try/except with custom exceptions
+8. ✅ **Config via env**: Pydantic Settings with .env support
+9. ✅ **Agent registry**: Persistent JSON file storage
+10. ✅ **Platform-agnostic**: User doesn't specify platform, planner decides
+
+**Privacy First**: All AI operations use local Ollama - no external APIs, no data leakage.
+
+**Agent-Driven**: Thin orchestrator, intelligent agents make decisions based on capabilities and context.
 
 ---
 

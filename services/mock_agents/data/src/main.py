@@ -26,6 +26,7 @@ app_kql = FastAPI(
 
 
 @app_kql.get("/")
+@app_kql.get("/a2a/descriptor")
 async def kql_root():
     """KQL agent information."""
     return {
@@ -36,7 +37,8 @@ async def kql_root():
         "version": "1.0.0-phase2-mock",
         "capabilities": ["generate_query", "execute_query", "generate_and_execute"],
         "status": "operational",
-        "mock": True
+        "metadata": {"mock": True},
+        "endpoint": "http://localhost:9020"
     }
 
 
@@ -124,7 +126,7 @@ async def generate_kql_query(request: A2ATaskRequest) -> A2ATaskResponse:
         agent_id="mock_kql_data",
         status="completed",
         result={
-            "query_result": query_result.model_dump()
+            "query_result": query_result.model_dump(mode="json")
         },
         cost_info={
             "llm_calls": 1,
@@ -198,6 +200,7 @@ app_spl = FastAPI(
 
 
 @app_spl.get("/")
+@app_spl.get("/a2a/descriptor")
 async def spl_root():
     """SPL agent information."""
     return {
@@ -208,7 +211,8 @@ async def spl_root():
         "version": "1.0.0-phase2-mock",
         "capabilities": ["generate_query", "execute_query", "generate_and_execute"],
         "status": "operational",
-        "mock": True
+        "metadata": {"mock": True},
+        "endpoint": "http://localhost:9021"
     }
 
 
@@ -273,7 +277,7 @@ async def generate_spl_query(request: A2ATaskRequest) -> A2ATaskResponse:
         agent_id="mock_spl_data",
         status="completed",
         result={
-            "query_result": query_result.model_dump()
+            "query_result": query_result.model_dump(mode="json")
         },
         cost_info={
             "llm_calls": 1,
@@ -337,6 +341,7 @@ app_sql = FastAPI(
 
 
 @app_sql.get("/")
+@app_sql.get("/a2a/descriptor")
 async def sql_root():
     """SQL agent information."""
     return {
@@ -347,7 +352,8 @@ async def sql_root():
         "version": "1.0.0-phase2-mock",
         "capabilities": ["generate_query", "execute_query", "generate_and_execute"],
         "status": "operational",
-        "mock": True
+        "metadata": {"mock": True},
+        "endpoint": "http://localhost:9021"
     }
 
 
@@ -412,7 +418,7 @@ async def generate_sql_query(request: A2ATaskRequest) -> A2ATaskResponse:
         agent_id="mock_sql_data",
         status="completed",
         result={
-            "query_result": query_result.model_dump()
+            "query_result": query_result.model_dump(mode="json")
         },
         cost_info={
             "llm_calls": 1,

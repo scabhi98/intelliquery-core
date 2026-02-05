@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # A2A discovery
     a2a_registry_url: str | None = None
     a2a_static_agents_json: str = "[]"
+    a2a_registry_file: str = "./data/agent_registry.json"
 
 
 settings = Settings()

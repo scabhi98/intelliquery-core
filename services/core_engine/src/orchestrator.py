@@ -1,14 +1,23 @@
 """Core A2A Orchestrator for coordinating agents."""
 
 import asyncio
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
+
+import httpx
 import structlog
 
 from shared.models.journey_models import JourneyContext
 from shared.models.query_models import QueryRequest, QueryResponse
-from shared.models.workflow_models import WorkflowState, WorkflowError
-from shared.models.a2a_models import A2AAgentDescriptor, A2ATaskRequest, A2ATaskResponse, KnowledgeContext
+from shared.models.workflow_models import WorkflowState
+from shared.models.a2a_models import (
+    A2AAgentDescriptor,
+    A2ATaskRequest,
+    A2ATaskResponse,
+    KnowledgeContext,
+    QueryResult,
+)
+from shared.models.workflow_models import WorkflowPlan, WorkflowStep
 from shared.models.cost_models import AgentCostInfo
 
 
@@ -39,12 +48,11 @@ class A2AOrchestrator:
         # Active journeys (in-memory for Phase 2, could be Redis for production)
         self.active_journeys: Dict[UUID, JourneyContext] = {}
         
-        # A2A client will be initialized properly in Phase 4
-        self.a2a_client = None  # Placeholder for a2a-sdk-python client
-        
         # Configuration
         self.max_retries = config.get("max_retries", 3)
         self.agent_timeout = config.get("agent_timeout_seconds", 60)
+        self.protocol_interface_url = config.get("protocol_interface_url", "http://localhost:8001")
+        self.max_concurrent_agents = config.get("max_concurrent_agents", 5)
         
         self.logger.info("A2AOrchestrator initialized", config=config)
     
@@ -187,67 +195,23 @@ class A2AOrchestrator:
         """
         Discover available A2A agents.
         
-        In Phase 2 (mock mode), this returns configured agent endpoints.
-        In Phase 4, this will query A2A registry for live agent discovery.
+        This queries the Protocol Interface agent registry for live discovery.
         """
         self.logger.info("Discovering A2A agents", journey_id=str(context.journey_id))
-        
-        # Phase 2: Use configured endpoints
-        planner_agents = [
-            A2AAgentDescriptor(
-                agent_id="mock_workflow_planner",
-                agent_type="planner",
-                agent_name="Mock Workflow Planner",
-                endpoint=self.config.get("planner_agent_url", "http://localhost:9000"),
-                capabilities=["create_plan"],
-                version="1.0.0-mock"
-            )
-        ]
-        
-        knowledge_agents = [
-            A2AAgentDescriptor(
-                agent_id="mock_sop_knowledge",
-                agent_type="knowledge",
-                agent_name="Mock SOP Knowledge Agent",
-                endpoint=self.config.get("sop_knowledge_url", "http://localhost:9010"),
-                capabilities=["retrieve_sop_context"],
-                version="1.0.0-mock"
-            )
-        ]
-        
-        # Discover data agents based on requested platform
+
+        agents = await self._discover_agents_via_protocol(context)
+
+        planner_agents = [a for a in agents if a.agent_type == "planner"]
+        knowledge_agents = [a for a in agents if a.agent_type == "knowledge"]
+
         platform = context.request.platform
-        data_agent_map = {
-            "kql": A2AAgentDescriptor(
-                agent_id="mock_kql_data",
-                agent_type="data",
-                agent_name="Mock KQL Data Agent",
-                endpoint=self.config.get("kql_data_url", "http://localhost:9020"),
-                capabilities=["generate_and_execute"],
-                platform="kql",
-                version="1.0.0-mock"
-            ),
-            "spl": A2AAgentDescriptor(
-                agent_id="mock_spl_data",
-                agent_type="data",
-                agent_name="Mock SPL Data Agent",
-                endpoint=self.config.get("spl_data_url", "http://localhost:9021"),
-                capabilities=["generate_and_execute"],
-                platform="spl",
-                version="1.0.0-mock"
-            ),
-            "sql": A2AAgentDescriptor(
-                agent_id="mock_sql_data",
-                agent_type="data",
-                agent_name="Mock SQL Data Agent",
-                endpoint=self.config.get("sql_data_url", "http://localhost:9022"),
-                capabilities=["generate_and_execute"],
-                platform="sql",
-                version="1.0.0-mock"
-            )
-        }
-        
-        data_agents = [data_agent_map.get(platform)] if platform in data_agent_map else []
+        if platform:
+            data_agents = [
+                a for a in agents
+                if a.agent_type == "data" and (a.platform is None or a.platform == platform)
+            ]
+        else:
+            data_agents = [a for a in agents if a.agent_type == "data"]
         
         # Store discovered agents in context
         context.discovered_agents = {
@@ -279,10 +243,12 @@ class A2AOrchestrator:
         """
         Invoke Planner agent to create workflow plan.
         
-        Phase 2: Calls mock planner that returns a simple plan.
-        Phase 4: Invokes real A2A planner agent.
+        Invokes planner agent via Protocol Interface.
         """
-        planner = context.discovered_agents["planner"][0]
+        planner = self._select_agent_by_capability(
+            context.discovered_agents.get("planner", []),
+            required_capability="create_plan"
+        )
         
         self.logger.info(
             "Invoking Planner agent",
@@ -290,60 +256,62 @@ class A2AOrchestrator:
             agent_id=planner.agent_id
         )
         
-        # Phase 2: Mock invocation (will be replaced with real A2A call)
-        # For now, create a simple mock plan
-        from shared.models.workflow_models import WorkflowPlan, WorkflowStep
-        
-        workflow_plan = WorkflowPlan(
-            plan_id=f"plan_{context.journey_id}",
-            created_by=planner.agent_id,
-            steps=[
-                WorkflowStep(
-                    step_id="step_1",
-                    agent_type="knowledge",
-                    agent_id="mock_sop_knowledge",
-                    action="retrieve_sop_context",
-                    parameters={
-                        "query": context.request.natural_language,
-                        "top_k": 5
-                    }
-                ),
-                WorkflowStep(
-                    step_id="step_2",
-                    agent_type="data",
-                    agent_id=context.discovered_agents["data"][0].agent_id,
-                    action="generate_and_execute",
-                    depends_on=["step_1"],
-                    parameters={
-                        "platform": context.request.platform,
-                        "execute": False  # Phase 2: Don't execute, just generate
-                    }
-                )
+        # Build agent capabilities summary for planner
+        available_agents = {
+            "planner": [
+                {"agent_id": a.agent_id, "agent_name": a.agent_name, "capabilities": a.capabilities}
+                for a in context.discovered_agents.get("planner", [])
             ],
-            estimated_duration_seconds=15,
-            estimated_cost_usd=0.01
-        )
+            "knowledge": [
+                {"agent_id": a.agent_id, "agent_name": a.agent_name, "capabilities": a.capabilities, "knowledge_domain": a.metadata.get("knowledge_domain")}
+                for a in context.discovered_agents.get("knowledge", [])
+            ],
+            "data": [
+                {"agent_id": a.agent_id, "agent_name": a.agent_name, "capabilities": a.capabilities, "platform": a.platform}
+                for a in context.discovered_agents.get("data", [])
+            ]
+        }
         
-        context.workflow_plan = workflow_plan
+        # Build execution context summary
+        execution_context = {
+            "journey_id": str(context.journey_id),
+            "current_state": context.current_state.value,
+            "state_history_count": len(context.state_history),
+            "available_agents": available_agents,
+            "user_context": context.request.context,
+            "schema_hints": context.request.schema_hints
+        }
         
-        # Mock cost info from planner
-        planner_cost = AgentCostInfo(
+        task = A2ATaskRequest(
+            journey_id=context.journey_id,
             agent_id=planner.agent_id,
-            agent_type="planner",
-            llm_calls=1,
-            llm_tokens=300,
-            mcp_calls=0,
-            embedding_calls=0,
-            execution_time_ms=150.0,
-            cost_usd=0.002
+            action="create_plan",
+            parameters={
+                "natural_language": context.request.natural_language,
+                "execution_context": execution_context
+            },
+            timeout_seconds=self.agent_timeout
         )
-        context.add_agent_cost(planner_cost)
+
+        response = await self._invoke_agent_task(planner, task)
+        if response.status != "success":
+            raise Exception(response.error_message or "Planner agent failed")
+
+        plan_payload = None
+        if response.result:
+            plan_payload = response.result.get("plan") or response.result.get("workflow_plan")
+
+        if not plan_payload:
+            raise Exception("Planner response missing workflow plan")
+
+        context.workflow_plan = WorkflowPlan(**plan_payload)
+        self._record_agent_cost("planner", planner.agent_id, response, context)
         
         self.logger.info(
             "Workflow plan created",
             journey_id=str(context.journey_id),
-            steps_count=len(workflow_plan.steps),
-            estimated_cost=workflow_plan.estimated_cost_usd
+            steps_count=len(context.workflow_plan.steps),
+            estimated_cost=context.workflow_plan.estimated_cost_usd
         )
     
     async def _invoke_knowledge_agents(
@@ -353,8 +321,7 @@ class A2AOrchestrator:
         """
         Invoke Knowledge Provider agents in parallel.
         
-        Phase 2: Calls mock knowledge agents.
-        Phase 4: Invokes real A2A knowledge agents via MCP tools.
+        Invokes knowledge agents via Protocol Interface.
         """
         knowledge_agents = context.discovered_agents.get("knowledge", [])
         
@@ -368,46 +335,25 @@ class A2AOrchestrator:
             agent_count=len(knowledge_agents)
         )
         
-        # Phase 2: Mock knowledge context
-        from shared.models.sop_models import Procedure
-        
-        sop_knowledge = KnowledgeContext(
-            source="sop",
-            agent_id="mock_sop_knowledge",
-            content={
-                "procedures": [
-                    {
-                        "id": "sop_001",
-                        "title": "Incident Response: Failed Logins",
-                        "description": "Procedure for investigating failed login attempts",
-                        "steps": [
-                            "Check SigninLogs table for failed authentication events",
-                            "Identify user accounts with multiple failures",
-                            "Verify if failures are from known IP ranges",
-                            "Lock account if suspicious activity detected"
-                        ],
-                        "relevant_tables": ["SigninLogs", "AuditLogs"],
-                        "tags": ["security", "authentication", "incident"]
-                    }
-                ]
-            },
-            relevance_score=0.85
-        )
-        
-        context.knowledge_contexts["sop"] = sop_knowledge
-        
-        # Mock cost from knowledge agent
-        knowledge_cost = AgentCostInfo(
-            agent_id="mock_sop_knowledge",
-            agent_type="knowledge",
-            llm_calls=0,
-            llm_tokens=0,
-            mcp_calls=1,  # MCP call to ChromaDB
-            embedding_calls=1,
-            execution_time_ms=450.0,
-            cost_usd=0.003
-        )
-        context.add_agent_cost(knowledge_cost)
+        if not context.workflow_plan:
+            raise Exception("Workflow plan not available before knowledge gathering")
+
+        knowledge_steps = [
+            step for step in context.workflow_plan.steps
+            if step.agent_type == "knowledge"
+        ]
+
+        semaphore = asyncio.Semaphore(self.max_concurrent_agents)
+        tasks = [
+            self._invoke_knowledge_step(semaphore, context, step, knowledge_agents)
+            for step in knowledge_steps
+        ]
+
+        results = await asyncio.gather(*tasks)
+
+        for knowledge_context in results:
+            if knowledge_context:
+                context.knowledge_contexts[knowledge_context.source] = knowledge_context
         
         self.logger.info(
             "Knowledge contexts retrieved",
@@ -422,74 +368,38 @@ class A2AOrchestrator:
         """
         Invoke Data agents for query generation/execution.
         
-        Phase 2: Calls mock data agents that return template queries.
-        Phase 4: Invokes real A2A data agents with LLM + GraphRAG + MCP execution.
+        Invokes data agents via Protocol Interface.
         """
         data_agents = context.discovered_agents.get("data", [])
         
         if not data_agents:
             raise Exception("No data agents available")
         
-        platform = context.request.platform
-        data_agent = data_agents[0]  # Use first (and only in Phase 2) data agent
-        
-        self.logger.info(
-            "Invoking Data agent",
-            journey_id=str(context.journey_id),
-            agent_id=data_agent.agent_id,
-            platform=platform
-        )
-        
-        # Phase 2: Mock query result
-        query_templates = {
-            "kql": f"SigninLogs\n| where TimeGenerated > ago(1h)\n| where Status == 'Failure'\n| project TimeGenerated, UserPrincipalName, IPAddress, Location\n| take 100\n// Query generated for: {context.request.natural_language[:50]}",
-            "spl": f"index=main sourcetype=authentication Status=\"Failure\" earliest=-1h\n| stats count by user, src_ip\n| sort -count\n# Query generated for: {context.request.natural_language[:50]}",
-            "sql": f"SELECT timestamp, username, ip_address, status\nFROM authentication_logs\nWHERE status = 'FAILURE'\n  AND timestamp > NOW() - INTERVAL '1 HOUR'\nORDER BY timestamp DESC\nLIMIT 100\n-- Query generated for: {context.request.natural_language[:50]}"
-        }
-        
-        query = query_templates.get(platform, f"-- Platform {platform} not implemented in mock")
-        
-        from shared.models.a2a_models import QueryResult
-        
-        query_result = QueryResult(
-            platform=platform,
-            agent_id=data_agent.agent_id,
-            query=query,
-            confidence=0.75,  # Mock confidence
-            explanation=f"Mock query for {platform} platform based on template",
-            optimizations=["mock_template_based"],
-            data=None,  # Phase 2: No execution
-            row_count=None,
-            execution_time_ms=None,
-            cost_info={
-                "llm_tokens": 450,
-                "mcp_calls": 0,  # Not executing in Phase 2
-                "cost_usd": 0.005
-            },
-            warnings=[],
-            metadata={"mock": True, "phase": 2}
-        )
-        
-        context.query_results[platform] = query_result
-        
-        # Add data agent cost
-        data_cost = AgentCostInfo(
-            agent_id=data_agent.agent_id,
-            agent_type="data",
-            llm_calls=1,
-            llm_tokens=450,
-            mcp_calls=0,
-            embedding_calls=0,
-            execution_time_ms=780.0,
-            cost_usd=0.005
-        )
-        context.add_agent_cost(data_cost)
+        if not context.workflow_plan:
+            raise Exception("Workflow plan not available before data generation")
+
+        data_steps = [
+            step for step in context.workflow_plan.steps
+            if step.agent_type == "data"
+        ]
+
+        semaphore = asyncio.Semaphore(self.max_concurrent_agents)
+        tasks = [
+            self._invoke_data_step(semaphore, context, step, data_agents)
+            for step in data_steps
+        ]
+
+        results = await asyncio.gather(*tasks)
+
+        for query_result in results:
+            if query_result:
+                context.query_results[query_result.platform] = query_result
         
         self.logger.info(
             "Query generated",
             journey_id=str(context.journey_id),
-            platform=platform,
-            confidence=query_result.confidence
+            platforms=list(context.query_results.keys()),
+            results_count=len(context.query_results)
         )
     
     async def _validate_results(
@@ -574,3 +484,188 @@ class A2AOrchestrator:
         )
         
         return response
+
+    async def _discover_agents_via_protocol(
+        self,
+        context: JourneyContext
+    ) -> List[A2AAgentDescriptor]:
+        """Discover agents via the Protocol Interface registry."""
+        url = f"{self.protocol_interface_url}/a2a/agents/discover"
+        async with httpx.AsyncClient(timeout=self.agent_timeout) as client:
+            response = await client.get(url)
+
+        if response.status_code != 200:
+            raise Exception(
+                f"Agent discovery failed: {response.status_code} - {response.text}"
+            )
+
+        payload = response.json()
+        agents = [A2AAgentDescriptor(**item) for item in payload]
+
+        self.logger.info(
+            "Agents discovered via protocol",
+            journey_id=str(context.journey_id),
+            total_agents=len(agents)
+        )
+        return agents
+
+    async def _invoke_agent_task(
+        self,
+        agent: A2AAgentDescriptor,
+        task: A2ATaskRequest
+    ) -> A2ATaskResponse:
+        """Invoke an agent via Protocol Interface."""
+        url = f"{self.protocol_interface_url}/a2a/task/invoke"
+        payload = {
+            "agent": agent.model_dump(mode="json"),
+            "task": task.model_dump(mode="json")
+        }
+
+        async with httpx.AsyncClient(timeout=self.agent_timeout) as client:
+            response = await client.post(url, json=payload)
+
+        if response.status_code != 200:
+            raise Exception(
+                f"A2A task invocation failed: {response.status_code} - {response.text}"
+            )
+
+        return A2ATaskResponse(**response.json())
+
+    async def _invoke_knowledge_step(
+        self,
+        semaphore: asyncio.Semaphore,
+        context: JourneyContext,
+        step: WorkflowStep,
+        agents: List[A2AAgentDescriptor]
+    ) -> Optional[KnowledgeContext]:
+        """Invoke a single knowledge step."""
+        async with semaphore:
+            agent = self._select_agent_for_step(step, agents)
+
+            parameters = dict(step.parameters or {})
+            parameters.setdefault("query", context.request.natural_language)
+
+            task = A2ATaskRequest(
+                journey_id=context.journey_id,
+                agent_id=agent.agent_id,
+                action=step.action,
+                parameters=parameters,
+                timeout_seconds=step.timeout_seconds or self.agent_timeout
+            )
+
+            response = await self._invoke_agent_task(agent, task)
+            if response.status != "success":
+                raise Exception(response.error_message or "Knowledge agent failed")
+
+            knowledge_payload = None
+            if response.result:
+                knowledge_payload = response.result.get("knowledge_context")
+
+            if not knowledge_payload:
+                raise Exception("Knowledge response missing context")
+
+            knowledge_context = KnowledgeContext(**knowledge_payload)
+            self._record_agent_cost("knowledge", agent.agent_id, response, context)
+            return knowledge_context
+
+    async def _invoke_data_step(
+        self,
+        semaphore: asyncio.Semaphore,
+        context: JourneyContext,
+        step: WorkflowStep,
+        agents: List[A2AAgentDescriptor]
+    ) -> Optional[QueryResult]:
+        """Invoke a single data step."""
+        async with semaphore:
+            agent = self._select_agent_for_step(step, agents)
+
+            knowledge_payload = {
+                source: kc.model_dump(mode="json")
+                for source, kc in context.knowledge_contexts.items()
+            }
+
+            parameters = dict(step.parameters or {})
+            if context.request.platform:
+                parameters.setdefault("platform", context.request.platform)
+            parameters.setdefault("natural_language", context.request.natural_language)
+            parameters.setdefault("knowledge_context", knowledge_payload)
+
+            task = A2ATaskRequest(
+                journey_id=context.journey_id,
+                agent_id=agent.agent_id,
+                action=step.action,
+                parameters=parameters,
+                timeout_seconds=step.timeout_seconds or self.agent_timeout
+            )
+
+            response = await self._invoke_agent_task(agent, task)
+            if response.status != "success":
+                raise Exception(response.error_message or "Data agent failed")
+
+            result_payload = None
+            if response.result:
+                result_payload = response.result.get("query_result")
+
+            if not result_payload:
+                raise Exception("Data response missing query result")
+
+            query_result = QueryResult(**result_payload)
+            self._record_agent_cost("data", agent.agent_id, response, context)
+            return query_result
+
+    def _select_agent_by_capability(
+        self,
+        agents: List[A2AAgentDescriptor],
+        required_capability: str
+    ) -> A2AAgentDescriptor:
+        """Select an agent that supports a required capability."""
+        if not agents:
+            raise Exception("No agents available")
+
+        for agent in agents:
+            if required_capability in agent.capabilities:
+                return agent
+
+        return agents[0]
+
+    def _select_agent_for_step(
+        self,
+        step: WorkflowStep,
+        agents: List[A2AAgentDescriptor]
+    ) -> A2AAgentDescriptor:
+        """Select an agent for a workflow step."""
+        if step.agent_id:
+            for agent in agents:
+                if agent.agent_id == step.agent_id:
+                    return agent
+
+        for agent in agents:
+            if step.action in agent.capabilities:
+                return agent
+
+        if agents:
+            return agents[0]
+
+        raise Exception(f"No agent available for step {step.step_id}")
+
+    def _record_agent_cost(
+        self,
+        agent_type: str,
+        agent_id: str,
+        response: A2ATaskResponse,
+        context: JourneyContext
+    ) -> None:
+        """Record cost info from agent response."""
+        cost_info = response.cost_info or {}
+        agent_cost = AgentCostInfo(
+            agent_id=agent_id,
+            agent_type=agent_type,
+            llm_calls=cost_info.get("llm_calls", 0),
+            llm_tokens=cost_info.get("llm_tokens", 0),
+            mcp_calls=cost_info.get("mcp_calls", 0),
+            embedding_calls=cost_info.get("embedding_calls", 0),
+            execution_time_ms=cost_info.get("execution_time_ms", response.execution_time_ms),
+            cost_usd=cost_info.get("cost_usd", 0.0),
+            metadata={"task_id": str(response.task_id)}
+        )
+        context.add_agent_cost(agent_cost)
